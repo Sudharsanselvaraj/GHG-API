@@ -4,39 +4,44 @@ from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import pandas as pd
 import requests
-from geopy.distance import geodesic
+import random
 
 app = FastAPI()
 
-# --- Enable CORS for frontend access ---
+# --- Enable CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # or restrict: ["http://localhost:3000"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Load models and files safely ---
+# --- Load Models and Feature Order ---
 try:
     model_co2 = joblib.load("model_co2.pkl")
     model_no2 = joblib.load("model_no2.pkl")
     feature_order = joblib.load("feature_order.pkl")
-    df_fires = pd.read_csv("fire_archive_SV-C2_635121.csv")
-
-    df_fires['confidence'] = pd.to_numeric(df_fires['confidence'], errors='coerce')
-    df_fires['confidence'].fillna(60, inplace=True)
-
 except Exception as e:
     print("⚠️ Error loading models or data:", e)
     raise
 
-# --- Input model ---
+# --- Input Schema ---
 class LocationInput(BaseModel):
     lat: float
     lon: float
 
-# --- Weather Fetch Function ---
+# --- Simulated Fire Feature Generator ---
+def get_fires_near(lat, lon):
+    return {
+        "fire_count": random.randint(0, 10),
+        "avg_frp": round(random.uniform(0, 80), 2),
+        "max_frp": round(random.uniform(0, 120), 2),
+        "avg_confidence": round(random.uniform(50, 95), 2),
+        "avg_brightness": round(random.uniform(280, 330), 2)
+    }
+
+# --- Weather API Call ---
 def fetch_weather(lat, lon):
     try:
         url = (
@@ -57,27 +62,12 @@ def fetch_weather(lat, lon):
     except Exception:
         return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}
 
-# --- Fire Proximity Function ---
-def get_fires_near(lat, lon, radius_km=50):
-    point = (lat, lon)
-    nearby = df_fires[df_fires.apply(
-        lambda row: geodesic(point, (row['latitude'], row['longitude'])).km <= radius_km,
-        axis=1
-    )]
-    return {
-        "fire_count": len(nearby),
-        "avg_frp": nearby["frp"].mean() if not nearby.empty else 0,
-        "max_frp": nearby["frp"].max() if not nearby.empty else 0,
-        "avg_confidence": nearby["confidence"].mean() if not nearby.empty else 0,
-        "avg_brightness": nearby["brightness"].mean() if not nearby.empty else 0,
-    }
-
-# --- Health Check Endpoint ---
+# --- Root Health Endpoint ---
 @app.get("/")
 def home():
     return {"message": "🌍 GHG-FuseNet API is live!"}
 
-# --- Prediction Endpoint ---
+# --- Predict Endpoint ---
 @app.post("/predict/")
 def predict(data: LocationInput):
     weather = fetch_weather(data.lat, data.lon)
