@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: ghg-fusenet-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.ghg_api:app --host 0.0.0.0 --port 10000
+    plan: free
