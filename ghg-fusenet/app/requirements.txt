@@ -1,7 +1,0 @@
-fastapi
-uvicorn
-pandas
-joblib
-scikit-learn
-geopy
-requests
