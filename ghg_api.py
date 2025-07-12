@@ -11,7 +11,7 @@ app = FastAPI()
 model_co2 = joblib.load("model_co2.pkl")
 model_no2 = joblib.load("model_no2.pkl")
 feature_order = joblib.load("feature_order.pkl")
-df_fires = pd.read_csv("fire_archive.csv")
+df_fires = pd.read_csv("fire_archive_SV-C2_635121.csv")
 
 df_fires['confidence'] = pd.to_numeric(df_fires['confidence'], errors='coerce')
 df_fires['confidence'].fillna(60, inplace=True)
