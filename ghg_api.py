@@ -117,25 +117,25 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
 
     if 8 <= lat <= 30 and fire_count > 300:
         ghg_causes.append("🔥 Crop burning and forest fires are active in your region.")
-    if co2 > 450:
+    if co2 > 250:
         ghg_causes.append("🚗 Fossil fuel combustion and regional fire hotspots")
-    if fire_count > 500:
+    if fire_count > 100:
         ghg_causes.append("🔥 Large-scale biomass burning detected nearby")
 
-    if no2 > 80:
+    if no2 > 30:
         ghg_effects.append("😷 High respiratory risk: asthma, lung inflammation")
-    elif co2 > 450:
+    elif co2 > 200:
         ghg_effects.append("😓 Fatigue and reduced concentration in vulnerable groups")
 
-    if co2 > 450:
+    if co2 > 350:
         precautions.append("✅ Stay hydrated and ventilate indoor spaces")
-    if fire_count > 500:
+    if fire_count > 100:
         precautions.append("🚫 Avoid any open waste or crop burning activities")
 
     precautions.append("🌳 Support afforestation and monitor alerts regularly")
     # 🛰️ Disaster Intelligence Mode
     disaster_info = None
-    if fire_count > 1000 and wind_speed > 7:
+    if fire_count > 500 and wind_speed > 7:
         disaster_info = {
             "fire_cluster_alert": "🔥 Large fire cluster + strong wind detected.",
             "action": "Notify authorities. Risk of smoke drifting toward population zones."
@@ -188,8 +188,8 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         "co2": round(co2, 2),
         "no2": round(no2, 2),
         "alerts": {
-            "co2": "⚠️ High" if co2 > 450 else "✅ Safe",
-            "no2": "⚠️ Hazardous" if no2 > 80 else "✅ Acceptable"
+            "co2": "⚠️ High" if co2 > 300 else "✅ Safe",
+            "no2": "⚠️ Hazardous" if no2 > 40 else "✅ Acceptable"
         },
         "ghg_causes": ghg_causes,
         "ghg_effects": ghg_effects,
