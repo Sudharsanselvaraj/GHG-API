@@ -5,6 +5,10 @@ import joblib
 import pandas as pd
 import numpy as np
 import requests
+import folium
+from folium.plugins import MarkerCluster
+from geopy.distance import geodesic
+import os
 
 app = FastAPI()
 
@@ -91,9 +95,36 @@ def fetch_weather(lat, lon):
     except Exception:
         return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}, {}
 
-@app.get("/")
-def home():
-    return {"message": "🌍 GHG-FuseNet API is live!"}
+def fetch_nearby_places(lat, lon, query_type):
+    try:
+        url = f"https://nominatim.openstreetmap.org/search.php?q={query_type}+near+{lat},{lon}&format=jsonv2&limit=5"
+        res = requests.get(url, headers={"User-Agent": "GHG-FuseNet-Agent"})
+        places = res.json()
+        return [
+            {
+                "name": place.get("display_name", "Unknown"),
+                "type": query_type,
+                "lat": float(place["lat"]),
+                "lon": float(place["lon"]),
+                "distance_km": round(geodesic((lat, lon), (place["lat"], place["lon"])).km, 2)
+            }
+            for place in places
+        ]
+    except:
+        return []
+
+def create_map(lat, lon, places):
+    m = folium.Map(location=[lat, lon], zoom_start=13)
+    folium.Marker([lat, lon], tooltip="Your Location", icon=folium.Icon(color='blue')).add_to(m)
+    for place in places:
+        folium.Marker(
+            [place["lat"], place["lon"]],
+            tooltip=place["name"],
+            icon=folium.Icon(color='red', icon='info-sign')
+        ).add_to(m)
+    map_path = f"map_{lat}_{lon}.html"
+    m.save(map_path)
+    return map_path
 
 @app.post("/predict/")
 def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
@@ -105,73 +136,50 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
 
-    # Alerts and explanations
-    disaster_risks = {}
+    # Alert Logic
+    disaster_risks = {
+        "fire_risk": {"status": "Safe", "reason": ""},
+        "heatwave": {"status": "Safe", "reason": ""},
+        "storm_warning": {"status": "Safe", "reason": ""},
+        "drought_alert": {"status": "Safe", "reason": ""},
+        "smog_alert": {"status": "Safe", "reason": ""},
+    }
 
     if fire["fire_count"] > 1000 or fire["avg_frp"] > 10:
-        disaster_risks["fire_risk"] = "🔥 Fire activity is high due to elevated fire counts and energy release (FRP)."
-    elif fire["fire_count"] > 300:
-        disaster_risks["fire_risk"] = "⚠️ Moderate fire activity nearby. Stay cautious."
-
+        disaster_risks["fire_risk"] = {
+            "status": "Alert",
+            "reason": "🔥 Fire activity is high due to elevated fire counts and energy release (FRP)."
+        }
     if weather["temperature"] > 38:
-        disaster_risks["heatwave"] = "🌡 Extremely high temperatures indicate a heatwave risk."
-
+        disaster_risks["heatwave"] = {
+            "status": "Alert",
+            "reason": "🌡 Extremely high temperatures indicate a heatwave risk."
+        }
     if weather["wind_speed"] > 25 and weather["pressure"] < 1000:
-        disaster_risks["storm_warning"] = "🌪 Strong winds and low pressure could signal storm conditions."
-
+        disaster_risks["storm_warning"] = {
+            "status": "Alert",
+            "reason": "🌪 Strong winds and low pressure could signal storm conditions."
+        }
     if weather["humidity"] < 20 and fire["fire_count"] > 200:
-        disaster_risks["drought_alert"] = "🚱 Low humidity and high fire activity suggest possible drought conditions."
-
+        disaster_risks["drought_alert"] = {
+            "status": "Alert",
+            "reason": "🚱 Low humidity and high fire activity suggest possible drought conditions."
+        }
     if co2 > 400 and no2 > 40:
-        disaster_risks["smog_alert"] = "🌫 Dangerous air quality from high CO₂ and NO₂. Smog alert issued."
+        disaster_risks["smog_alert"] = {
+            "status": "Alert",
+            "reason": "🌫 Dangerous air quality from high CO₂ and NO₂. Smog alert issued."
+        }
 
-    # Logic based on CO2 and NO2 only
-    ghg_causes = []
-    if co2 > 300:
-        ghg_causes.append("🚗 Elevated fossil fuel emissions likely in the area.")
-    if no2 > 30:
-        ghg_causes.append("🏭 Industrial activity or vehicle exhaust may be high.")
-
-    ghg_effects = []
-    if co2 > 300:
-        ghg_effects.append("🌡 Potential for long-term climate warming.")
-    if no2 > 30:
-        ghg_effects.append("😷 Respiratory irritation and increased asthma risk.")
-
-    precautions = []
-    if co2 > 300:
-        precautions.append("💨 Ensure proper indoor ventilation.")
-    if no2 > 30:
-        precautions.append("😷 Wear masks in polluted environments.")
-    precautions.append("🌳 Support clean energy and afforestation efforts.")
-
-    # Batch prediction for performance
-    forecast = []
-    if forecast_hourly:
-        times = forecast_hourly.get("time", [])
-        temp = forecast_hourly.get("temperature_2m", [])
-        wind = forecast_hourly.get("wind_speed_10m", [])
-        hum = forecast_hourly.get("relative_humidity_2m", [])
-        pres = forecast_hourly.get("pressure_msl", [])
-
-        limit = min(hours, len(times))
-        batch_data = pd.DataFrame([{
-            "temperature": temp[i],
-            "wind_speed": wind[i],
-            "pressure": pres[i],
-            "humidity": hum[i],
-            **fire
-        } for i in range(limit)])[feature_order]
-
-        pred_co2 = model_co2.predict(batch_data)
-        pred_no2 = model_no2.predict(batch_data)
-
-        forecast = [{
-            "timestamp": times[i],
-            "temperature": round(temp[i], 2),
-            "co2": round(pred_co2[i], 2),
-            "no2": round(pred_no2[i], 2)
-        } for i in range(limit)]
+    # Find affected places if any disaster
+    affected_places = []
+    if any(v["status"] == "Alert" for v in disaster_risks.values()):
+        types = ["school", "hospital"]
+        for t in types:
+            affected_places.extend(fetch_nearby_places(data.lat, data.lon, t))
+        map_file = create_map(data.lat, data.lon, affected_places)
+    else:
+        map_file = None
 
     return {
         "location": {"lat": data.lat, "lon": data.lon},
@@ -179,13 +187,7 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         "fire": fire,
         "co2": round(co2, 2),
         "no2": round(no2, 2),
-        "alerts": {
-            "co2": "⚠️ High" if co2 > 300 else "✅ Safe",
-            "no2": "⚠️ Hazardous" if no2 > 30 else "✅ Acceptable"
-        },
-        "ghg_causes": ghg_causes,
-        "ghg_effects": ghg_effects,
-        "precautions": precautions,
-        "forecast": forecast,
-        "disaster_risks": disaster_risks
+        "disaster_risks": disaster_risks,
+        "affected_nearby_places": affected_places,
+        "map_file": map_file
     }
