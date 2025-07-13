@@ -107,19 +107,19 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
 
     # Logic based on CO2 and NO2 only
     ghg_causes = []
-    if co2 > 400:
+    if co2 > 300:
         ghg_causes.append("🚗 Elevated fossil fuel emissions likely in the area.")
     if no2 > 30:
         ghg_causes.append("🏭 Industrial activity or vehicle exhaust may be high.")
 
     ghg_effects = []
-    if co2 > 400:
+    if co2 > 300:
         ghg_effects.append("🌡 Potential for long-term climate warming.")
     if no2 > 30:
         ghg_effects.append("😷 Respiratory irritation and increased asthma risk.")
 
     precautions = []
-    if co2 > 400:
+    if co2 > 300:
         precautions.append("💨 Ensure proper indoor ventilation.")
     if no2 > 30:
         precautions.append("😷 Wear masks in polluted environments.")
@@ -161,7 +161,7 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         "no2": round(no2, 2),
         "alerts": {
             "co2": "⚠️ High" if co2 > 300 else "✅ Safe",
-            "no2": "⚠️ Hazardous" if no2 > 40 else "✅ Acceptable"
+            "no2": "⚠️ Hazardous" if no2 > 30 else "✅ Acceptable"
         },
         "ghg_causes": ghg_causes,
         "ghg_effects": ghg_effects,
