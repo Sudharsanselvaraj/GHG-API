@@ -112,6 +112,7 @@ def predict(data: LocationInput):
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
 
+   
     return {
         "location": {"lat": data.lat, "lon": data.lon},
         "weather": weather,
@@ -119,7 +120,38 @@ def predict(data: LocationInput):
         "co2": round(co2, 2),
         "no2": round(no2, 2),
         "alerts": {
-            "co2": "⚠️ High" if co2 > 350 else "✅ Safe",
+            "co2": "⚠️ High" if co2 > 450 else "✅ Safe",
             "no2": "⚠️ Hazardous" if no2 > 80 else "✅ Acceptable"
-        }
+        },
+        "ghg_causes": ghg_causes,
+        "ghg_effects": ghg_effects,
+        "precautions": precautions
     }
+ # --- Intelligent Output: Causes, Effects, Precautions ---
+    ghg_causes = []
+    ghg_effects = []
+    precautions = []
+
+    if co2 > 500:
+        ghg_causes.append("🔥 Intense fire activity releasing massive CO₂")
+        ghg_effects.append("🌡️ Significant warming — heat stress and exhaustion")
+        precautions.append("✅ Avoid outdoor activity during peak hours")
+    elif co2 > 450:
+        ghg_causes.append("🚗 Fossil fuel combustion and regional fire hotspots")
+        ghg_effects.append("😓 Fatigue and reduced concentration in vulnerable groups")
+        precautions.append("✅ Stay hydrated and ventilate indoor spaces")
+
+    if no2 > 80:
+        ghg_causes.append("🏭 Industrial or vehicle emissions contributing NO₂")
+        ghg_effects.append("😷 High respiratory risk: asthma, lung inflammation")
+        precautions.append("😷 Wear carbon-filter masks and use indoor purifiers")
+    elif no2 > 60:
+        ghg_causes.append("🛻 Traffic and smoke exposure causing elevated NO₂")
+        ghg_effects.append("🤧 Eye irritation, shortness of breath in sensitive people")
+        precautions.append("✅ Limit physical exertion near roads or fire zones")
+
+    if fire["fire_count"] > 500:
+        ghg_causes.append("🔥 Large-scale biomass burning detected nearby")
+        precautions.append("🚫 Avoid any open waste or crop burning activities")
+
+    precautions.append("🌳 Support afforestation and monitor alerts regularly")
