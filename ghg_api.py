@@ -123,7 +123,6 @@ def fetch_ghg_insights(co2, no2, lat, lon):
         response = requests.post(url, json=payload, timeout=20)
         result = response.json()
 
-        # Try to extract raw text from all possible parts
         parts = result.get("candidates", [{}])[0].get("content", {}).get("parts", [])
         text = ""
         for p in parts:
@@ -135,13 +134,22 @@ def fetch_ghg_insights(co2, no2, lat, lon):
         causes, effects, precautions = [], [], []
 
         if "Causes:" in text:
-            sections = text.split("Causes:")[-1].split("Effects:")
-            causes = [line.strip("-• ").strip() for line in sections[0].strip().split("\n") if line.strip()]
-            if len(sections) > 1:
-                sub = sections[1].split("Precautions:")
-                effects = [line.strip("-• ").strip() for line in sub[0].strip().split("\n") if line.strip()]
-                if len(sub) > 1:
-                    precautions = [line.strip("-• ").strip() for line in sub[1].strip().split("\n") if line.strip()]
+            try:
+                sections = text.split("Causes:")[1].split("Effects:")
+                causes_raw = sections[0]
+                effects_raw, precautions_raw = "", ""
+                if len(sections) > 1:
+                    parts2 = sections[1].split("Precautions:")
+                    effects_raw = parts2[0]
+                    if len(parts2) > 1:
+                        precautions_raw = parts2[1]
+
+                causes = [line.strip("-• ").strip() for line in causes_raw.strip().splitlines() if line.strip()]
+                effects = [line.strip("-• ").strip() for line in effects_raw.strip().splitlines() if line.strip()]
+                precautions = [line.strip("-• ").strip() for line in precautions_raw.strip().splitlines() if line.strip()]
+
+            except Exception as parse_error:
+                print("⚠️ Parsing error:", parse_error)
 
         return causes, effects, precautions
 
