@@ -1,10 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import joblib
 import pandas as pd
 import numpy as np
 import requests
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
+import io
+import base64
 
 app = FastAPI()
 
@@ -91,9 +95,9 @@ def fetch_weather(lat, lon):
             "wind_speed": current.get("windspeed", 0),
             "pressure": hourly.get("pressure_msl", [0])[0],
             "humidity": hourly.get("relative_humidity_2m", [0])[0]
-        }
+        }, hourly
     except Exception:
-        return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}
+        return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}, {}
 
 # --- Root Health Check ---
 @app.get("/")
@@ -102,22 +106,20 @@ def home():
 
 # --- Main Prediction Endpoint ---
 @app.post("/predict/")
-def predict(data: LocationInput):
-    weather = fetch_weather(data.lat, data.lon)
+def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
+    weather, forecast_hourly = fetch_weather(data.lat, data.lon)
     fire = get_fires_near(data.lat, data.lon)
     features = {**fire, **weather}
 
     df_input = pd.DataFrame([features])[feature_order]
-
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
 
-    # ✅ Initialize clean section safely
+    # --- GHG Cause & Precaution Logic ---
     ghg_causes = []
     ghg_effects = []
     precautions = []
 
-    # ✅ Region-aware logic based on lat/lon and pollution values
     lat, lon = data.lat, data.lon
     wind_speed = weather.get("wind_speed", 0)
     humidity = weather.get("humidity", 0)
@@ -126,23 +128,73 @@ def predict(data: LocationInput):
     if 8 <= lat <= 30 and fire_count > 300:
         ghg_causes.append("🔥 Crop burning and forest fires are active in your region.")
     if co2 > 450:
-        ghg_causes.append("🚗 Vehicular and industrial emissions likely contributed to elevated CO₂.")
-    if no2 > 70:
-        ghg_causes.append("🏭 NO₂ spike likely from transportation or nearby thermal plants.")
+        ghg_causes.append("🚗 Fossil fuel combustion and regional fire hotspots")
+    if fire_count > 500:
+        ghg_causes.append("🔥 Large-scale biomass burning detected nearby")
 
     if no2 > 80:
-        ghg_effects.append("😷 Risk of lung inflammation and asthma in children.")
-    if co2 > 500 and wind_speed < 5:
-        ghg_effects.append("🌫️ Low wind may cause heat stress and trap pollutants near ground level.")
+        ghg_effects.append("😷 High respiratory risk: asthma, lung inflammation")
+    elif co2 > 450:
+        ghg_effects.append("😓 Fatigue and reduced concentration in vulnerable groups")
 
+    if co2 > 450:
+        precautions.append("✅ Stay hydrated and ventilate indoor spaces")
     if fire_count > 500:
-        precautions.append("🚫 Avoid areas near farmland or burning zones.")
-    if wind_speed < 4 and humidity > 80:
-        precautions.append("🧼 Use air purifiers or natural ventilation to improve indoor air.")
-    if co2 > 450 or no2 > 60:
-        precautions.append("😷 Limit outdoor activity during peak pollution hours.")
+        precautions.append("🚫 Avoid any open waste or crop burning activities")
 
-    precautions.append("🌳 Support afforestation and check updates on local air quality.")
+    precautions.append("🌳 Support afforestation and monitor alerts regularly")
+
+    # --- Forecasting with Plot ---
+    forecast = []
+    base64_plot = None
+
+    if forecast_hourly:
+        times = forecast_hourly.get("time", [])
+        temp = forecast_hourly.get("temperature_2m", [])
+        wind = forecast_hourly.get("wind_speed_10m", [])
+        hum = forecast_hourly.get("relative_humidity_2m", [])
+        pres = forecast_hourly.get("pressure_msl", [])
+
+        limit = min(hours, len(times))
+        timestamps, co2_preds, no2_preds = [], [], []
+
+        for i in range(limit):
+            feature_forecast = {
+                "temperature": temp[i],
+                "wind_speed": wind[i],
+                "pressure": pres[i],
+                "humidity": hum[i],
+                **fire
+            }
+            df_f = pd.DataFrame([feature_forecast])[feature_order]
+            pred_co2 = model_co2.predict(df_f)[0]
+            pred_no2 = model_no2.predict(df_f)[0]
+
+            forecast.append({
+                "timestamp": times[i],
+                "co2": round(pred_co2, 2),
+                "no2": round(pred_no2, 2)
+            })
+            timestamps.append(times[i])
+            co2_preds.append(pred_co2)
+            no2_preds.append(pred_no2)
+
+        # 📊 Generate Base64 Plot
+        plt.figure(figsize=(12, 5))
+        plt.plot(timestamps, co2_preds, label='CO₂ (ppm)', color='green', marker='o')
+        plt.plot(timestamps, no2_preds, label='NO₂ (ppb)', color='red', marker='x')
+        plt.xticks(rotation=45, ha='right')
+        plt.ylabel("Concentration")
+        plt.title("Forecasted CO₂ and NO₂ Levels")
+        plt.legend()
+        plt.tight_layout()
+        plt.grid(True)
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        plt.close()
+        buf.seek(0)
+        base64_plot = base64.b64encode(buf.read()).decode('utf-8')
 
     return {
         "location": {"lat": lat, "lon": lon},
@@ -156,5 +208,7 @@ def predict(data: LocationInput):
         },
         "ghg_causes": ghg_causes,
         "ghg_effects": ghg_effects,
-        "precautions": precautions
+        "precautions": precautions,
+        "forecast": forecast,
+        "forecast_plot_base64": base64_plot
     }
