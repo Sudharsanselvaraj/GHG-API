@@ -105,13 +105,13 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
 
-    # Disaster alerts structure with default Safe status
+    # Disaster alerts structure with default Safe status and reason
     disaster_risks = {
-        "fire_risk": {"status": "Safe", "reason": ""},
-        "heatwave": {"status": "Safe", "reason": ""},
-        "storm_warning": {"status": "Safe", "reason": ""},
-        "drought_alert": {"status": "Safe", "reason": ""},
-        "smog_alert": {"status": "Safe", "reason": ""},
+        "fire_risk": {"status": "Safe", "reason": "No active fire hazards nearby."},
+        "heatwave": {"status": "Safe", "reason": "Temperature levels are normal."},
+        "storm_warning": {"status": "Safe", "reason": "Wind and pressure are stable."},
+        "drought_alert": {"status": "Safe", "reason": "Humidity is adequate, no drought risk."},
+        "smog_alert": {"status": "Safe", "reason": "Air quality within safe limits."},
     }
 
     if fire["fire_count"] > 1000 or fire["avg_frp"] > 10:
