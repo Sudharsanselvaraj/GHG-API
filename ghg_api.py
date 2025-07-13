@@ -119,7 +119,7 @@ def predict(data: LocationInput):
         "co2": round(co2, 2),
         "no2": round(no2, 2),
         "alerts": {
-            "co2": "⚠️ High" if co2 > 450 else "✅ Safe",
+            "co2": "⚠️ High" if co2 > 350 else "✅ Safe",
             "no2": "⚠️ Hazardous" if no2 > 80 else "✅ Acceptable"
         }
     }
