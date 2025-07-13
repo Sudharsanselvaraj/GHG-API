@@ -175,9 +175,11 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
 
             forecast.append({
                 "timestamp": times[i],
+                "temperature": round(temp[i], 2),
                 "co2": round(pred_co2, 2),
                 "no2": round(pred_no2, 2)
             })
+
 
     return {
         "location": {"lat": lat, "lon": lon},
