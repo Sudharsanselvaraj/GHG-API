@@ -125,6 +125,7 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         precautions.append("😷 Wear masks in polluted environments.")
     precautions.append("🌳 Support clean energy and afforestation efforts.")
 
+    # Batch prediction for performance
     forecast = []
     if forecast_hourly:
         times = forecast_hourly.get("time", [])
@@ -134,25 +135,23 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         pres = forecast_hourly.get("pressure_msl", [])
 
         limit = min(hours, len(times))
+        batch_data = pd.DataFrame([{
+            "temperature": temp[i],
+            "wind_speed": wind[i],
+            "pressure": pres[i],
+            "humidity": hum[i],
+            **fire
+        } for i in range(limit)])[feature_order]
 
-        for i in range(limit):
-            feature_forecast = {
-                "temperature": temp[i],
-                "wind_speed": wind[i],
-                "pressure": pres[i],
-                "humidity": hum[i],
-                **fire
-            }
-            df_f = pd.DataFrame([feature_forecast])[feature_order]
-            pred_co2 = model_co2.predict(df_f)[0]
-            pred_no2 = model_no2.predict(df_f)[0]
+        pred_co2 = model_co2.predict(batch_data)
+        pred_no2 = model_no2.predict(batch_data)
 
-            forecast.append({
-                "timestamp": times[i],
-                "temperature": round(temp[i], 2),
-                "co2": round(pred_co2, 2),
-                "no2": round(pred_no2, 2)
-            })
+        forecast = [{
+            "timestamp": times[i],
+            "temperature": round(temp[i], 2),
+            "co2": round(pred_co2[i], 2),
+            "no2": round(pred_no2[i], 2)
+        } for i in range(limit)]
 
     return {
         "location": {"lat": data.lat, "lon": data.lon},
