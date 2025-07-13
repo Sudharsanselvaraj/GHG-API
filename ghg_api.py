@@ -105,6 +105,26 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
 
+    # Alerts and explanations
+    disaster_risks = {}
+
+    if fire["fire_count"] > 1000 or fire["avg_frp"] > 10:
+        disaster_risks["fire_risk"] = "🔥 Fire activity is high due to elevated fire counts and energy release (FRP)."
+    elif fire["fire_count"] > 300:
+        disaster_risks["fire_risk"] = "⚠️ Moderate fire activity nearby. Stay cautious."
+
+    if weather["temperature"] > 38:
+        disaster_risks["heatwave"] = "🌡 Extremely high temperatures indicate a heatwave risk."
+
+    if weather["wind_speed"] > 25 and weather["pressure"] < 1000:
+        disaster_risks["storm_warning"] = "🌪 Strong winds and low pressure could signal storm conditions."
+
+    if weather["humidity"] < 20 and fire["fire_count"] > 200:
+        disaster_risks["drought_alert"] = "🚱 Low humidity and high fire activity suggest possible drought conditions."
+
+    if co2 > 400 and no2 > 40:
+        disaster_risks["smog_alert"] = "🌫 Dangerous air quality from high CO₂ and NO₂. Smog alert issued."
+
     # Logic based on CO2 and NO2 only
     ghg_causes = []
     if co2 > 300:
@@ -166,5 +186,6 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         "ghg_causes": ghg_causes,
         "ghg_effects": ghg_effects,
         "precautions": precautions,
-        "forecast": forecast
+        "forecast": forecast,
+        "disaster_risks": disaster_risks
     }
