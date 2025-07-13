@@ -6,9 +6,6 @@ import pandas as pd
 import numpy as np
 import requests
 from datetime import datetime, timedelta
-import matplotlib.pyplot as plt
-import io
-import base64
 
 app = FastAPI()
 
@@ -32,7 +29,6 @@ try:
     df_fires['confidence'] = pd.to_numeric(df_fires['confidence'], errors='coerce')
     df_fires['confidence'] = df_fires['confidence'].fillna(60)
 
-    # Filter region (e.g., South Asia)
     df_fires = df_fires[
         (df_fires['latitude'] >= 5) & (df_fires['latitude'] <= 40) &
         (df_fires['longitude'] >= 60) & (df_fires['longitude'] <= 100)
@@ -42,12 +38,10 @@ except Exception as e:
     print("❌ Error loading model or data:", e)
     raise
 
-# --- Request Input Schema ---
 class LocationInput(BaseModel):
     lat: float
     lon: float
 
-# --- Get Nearby Fire Stats using Haversine Optimization ---
 def get_fires_near(lat, lon, radius_km=50):
     df_local = df_fires[
         (df_fires['latitude'] >= lat - 1) & (df_fires['latitude'] <= lat + 1) &
@@ -77,7 +71,6 @@ def get_fires_near(lat, lon, radius_km=50):
         "avg_brightness": df_nearby["brightness"].mean() if not df_nearby.empty else 0,
     }
 
-# --- Fetch Real-Time Weather ---
 def fetch_weather(lat, lon):
     try:
         url = (
@@ -99,12 +92,10 @@ def fetch_weather(lat, lon):
     except Exception:
         return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}, {}
 
-# --- Root Health Check ---
 @app.get("/")
 def home():
     return {"message": "🌍 GHG-FuseNet API is live!"}
 
-# --- Main Prediction Endpoint ---
 @app.post("/predict/")
 def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     weather, forecast_hourly = fetch_weather(data.lat, data.lon)
@@ -115,7 +106,6 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
 
-    # --- GHG Cause & Precaution Logic ---
     ghg_causes = []
     ghg_effects = []
     precautions = []
@@ -125,29 +115,26 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     humidity = weather.get("humidity", 0)
     fire_count = fire.get("fire_count", 0)
 
-    if 8 <= lat <= 30 and fire_count > 200:
+    if 8 <= lat <= 30 and fire_count > 300:
         ghg_causes.append("🔥 Crop burning and forest fires are active in your region.")
-    if co2 > 250:
+    if co2 > 450:
         ghg_causes.append("🚗 Fossil fuel combustion and regional fire hotspots")
-    if fire_count > 300:
+    if fire_count > 500:
         ghg_causes.append("🔥 Large-scale biomass burning detected nearby")
 
-    if no2 > 50:
+    if no2 > 80:
         ghg_effects.append("😷 High respiratory risk: asthma, lung inflammation")
-    elif co2 > 250:
+    elif co2 > 450:
         ghg_effects.append("😓 Fatigue and reduced concentration in vulnerable groups")
 
-    if co2 > 350:
+    if co2 > 450:
         precautions.append("✅ Stay hydrated and ventilate indoor spaces")
-    if fire_count > 300:
+    if fire_count > 500:
         precautions.append("🚫 Avoid any open waste or crop burning activities")
 
     precautions.append("🌳 Support afforestation and monitor alerts regularly")
 
-    # --- Forecasting with Plot ---
     forecast = []
-    base64_plot = None
-
     if forecast_hourly:
         times = forecast_hourly.get("time", [])
         temp = forecast_hourly.get("temperature_2m", [])
@@ -156,7 +143,6 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         pres = forecast_hourly.get("pressure_msl", [])
 
         limit = min(hours, len(times))
-        timestamps, co2_preds, no2_preds = [], [], []
 
         for i in range(limit):
             feature_forecast = {
@@ -175,26 +161,6 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
                 "co2": round(pred_co2, 2),
                 "no2": round(pred_no2, 2)
             })
-            timestamps.append(times[i])
-            co2_preds.append(pred_co2)
-            no2_preds.append(pred_no2)
-
-        # 📊 Generate Base64 Plot
-        plt.figure(figsize=(12, 5))
-        plt.plot(timestamps, co2_preds, label='CO₂ (ppm)', color='green', marker='o')
-        plt.plot(timestamps, no2_preds, label='NO₂ (ppb)', color='red', marker='x')
-        plt.xticks(rotation=45, ha='right')
-        plt.ylabel("Concentration")
-        plt.title("Forecasted CO₂ and NO₂ Levels")
-        plt.legend()
-        plt.tight_layout()
-        plt.grid(True)
-
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        plt.close()
-        buf.seek(0)
-        base64_plot = base64.b64encode(buf.read()).decode('utf-8')
 
     return {
         "location": {"lat": lat, "lon": lon},
@@ -209,6 +175,5 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         "ghg_causes": ghg_causes,
         "ghg_effects": ghg_effects,
         "precautions": precautions,
-        "forecast": forecast,
-        "forecast_plot_base64": base64_plot
+        "forecast": forecast
     }
