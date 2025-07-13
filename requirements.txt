@@ -3,6 +3,7 @@ uvicorn
 pandas
 joblib
 scikit-learn
+python-dotenv
 geopy
 requests
 matplotlib
