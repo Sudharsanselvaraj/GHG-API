@@ -125,21 +125,21 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     humidity = weather.get("humidity", 0)
     fire_count = fire.get("fire_count", 0)
 
-    if 8 <= lat <= 30 and fire_count > 300:
+    if 8 <= lat <= 30 and fire_count > 200:
         ghg_causes.append("🔥 Crop burning and forest fires are active in your region.")
-    if co2 > 450:
+    if co2 > 250:
         ghg_causes.append("🚗 Fossil fuel combustion and regional fire hotspots")
-    if fire_count > 500:
+    if fire_count > 300:
         ghg_causes.append("🔥 Large-scale biomass burning detected nearby")
 
-    if no2 > 80:
+    if no2 > 50:
         ghg_effects.append("😷 High respiratory risk: asthma, lung inflammation")
-    elif co2 > 450:
+    elif co2 > 250:
         ghg_effects.append("😓 Fatigue and reduced concentration in vulnerable groups")
 
-    if co2 > 450:
+    if co2 > 350:
         precautions.append("✅ Stay hydrated and ventilate indoor spaces")
-    if fire_count > 500:
+    if fire_count > 300:
         precautions.append("🚫 Avoid any open waste or crop burning activities")
 
     precautions.append("🌳 Support afforestation and monitor alerts regularly")
