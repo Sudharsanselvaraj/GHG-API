@@ -97,7 +97,7 @@ def fetch_weather(lat, lon):
 
 def fetch_ghg_insights(co2, no2, lat, lon):
     try:
-        hf_token = os.getenv("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")
+        hf_token = os.getenv("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")
         headers = {"Authorization": f"Bearer {hf_token}"}
         prompt = f"Based on the current CO2 level of {co2:.2f} ppm and NO2 level of {no2:.2f} ppb at latitude {lat} and longitude {lon}, explain the causes, effects on health/environment, and precautions citizens should take. Return each as a list."
         payload = {"inputs": prompt}
@@ -106,19 +106,21 @@ def fetch_ghg_insights(co2, no2, lat, lon):
 
         result = response.json()
         text = result[0]['generated_text'] if isinstance(result, list) else ""
+        print("🔍 HuggingFace Response Text:\n", text)
 
         causes = []
         effects = []
         precautions = []
 
-        if "Causes:" in text:
-            sections = text.split("Causes:")[-1].split("Effects:")
-            causes = [line.strip("- ") for line in sections[0].strip().split("\n") if line.strip()]
-            if len(sections) > 1:
-                sub = sections[1].split("Precautions:")
-                effects = [line.strip("- ") for line in sub[0].strip().split("\n") if line.strip()]
-                if len(sub) > 1:
-                    precautions = [line.strip("- ") for line in sub[1].strip().split("\n") if line.strip()]
+        lines = text.split("\n")
+        for line in lines:
+            line_lower = line.lower()
+            if "cause" in line_lower:
+                causes.append(line.strip("-• "))
+            elif "effect" in line_lower:
+                effects.append(line.strip("-• "))
+            elif "precaution" in line_lower or "advice" in line_lower:
+                precautions.append(line.strip("-• "))
 
         return causes, effects, precautions
 
@@ -185,5 +187,6 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         "ghg_causes": causes,
         "ghg_effects": effects,
         "precautions": precautions,
-        "forecast": forecast
+        "forecast": forecast,
+        "debug_raw_ghg_text": text
     }
