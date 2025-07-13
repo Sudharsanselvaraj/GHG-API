@@ -103,11 +103,21 @@ def fetch_ghg_insights(co2, no2, lat, lon):
         prompt = f"""
         Based on the current CO2 level of {co2:.2f} ppm and NO2 level of {no2:.2f} ppb at location ({lat}, {lon}), 
         list:
-        1. Causes (as bullet points)
-        2. Effects (as bullet points)
-        3. Precautions (as bullet points)
-        Format:
-        Causes:\n- ...\nEffects:\n- ...\nPrecautions:\n- ...
+        1. Causes
+        2. Effects
+        3. Precautions
+
+        Format the response strictly like this:
+
+        Causes:
+        - ...
+        - ...
+        Effects:
+        - ...
+        - ...
+        Precautions:
+        - ...
+        - ...
         """
 
         payload = {
@@ -123,6 +133,8 @@ def fetch_ghg_insights(co2, no2, lat, lon):
         response = requests.post(url, json=payload)
         result = response.json()
         text = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+
+        print("🔍 Gemini API Raw Text:\n", text)
 
         causes, effects, precautions = [], [], []
 
