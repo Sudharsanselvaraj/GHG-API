@@ -111,39 +111,41 @@ def predict(data: LocationInput):
 
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
-     # --- Intelligent Output: Causes, Effects, Precautions ---
+
+    # ✅ Initialize clean section safely
     ghg_causes = []
     ghg_effects = []
     precautions = []
 
-    if co2 > 500:
-        ghg_causes.append("🔥 Intense fire activity releasing massive CO₂")
-        ghg_effects.append("🌡️ Significant warming — heat stress and exhaustion")
-        precautions.append("✅ Avoid outdoor activity during peak hours")
-    elif co2 > 450:
-        ghg_causes.append("🚗 Fossil fuel combustion and regional fire hotspots")
-        ghg_effects.append("😓 Fatigue and reduced concentration in vulnerable groups")
-        precautions.append("✅ Stay hydrated and ventilate indoor spaces")
+    # ✅ Region-aware logic based on lat/lon and pollution values
+    lat, lon = data.lat, data.lon
+    wind_speed = weather.get("wind_speed", 0)
+    humidity = weather.get("humidity", 0)
+    fire_count = fire.get("fire_count", 0)
+
+    if 8 <= lat <= 30 and fire_count > 300:
+        ghg_causes.append("🔥 Crop burning and forest fires are active in your region.")
+    if co2 > 450:
+        ghg_causes.append("🚗 Vehicular and industrial emissions likely contributed to elevated CO₂.")
+    if no2 > 70:
+        ghg_causes.append("🏭 NO₂ spike likely from transportation or nearby thermal plants.")
 
     if no2 > 80:
-        ghg_causes.append("🏭 Industrial or vehicle emissions contributing NO₂")
-        ghg_effects.append("😷 High respiratory risk: asthma, lung inflammation")
-        precautions.append("😷 Wear carbon-filter masks and use indoor purifiers")
-    elif no2 > 60:
-        ghg_causes.append("🛻 Traffic and smoke exposure causing elevated NO₂")
-        ghg_effects.append("🤧 Eye irritation, shortness of breath in sensitive people")
-        precautions.append("✅ Limit physical exertion near roads or fire zones")
+        ghg_effects.append("😷 Risk of lung inflammation and asthma in children.")
+    if co2 > 500 and wind_speed < 5:
+        ghg_effects.append("🌫️ Low wind may cause heat stress and trap pollutants near ground level.")
 
-    if fire["fire_count"] > 500:
-        ghg_causes.append("🔥 Large-scale biomass burning detected nearby")
-        precautions.append("🚫 Avoid any open waste or crop burning activities")
+    if fire_count > 500:
+        precautions.append("🚫 Avoid areas near farmland or burning zones.")
+    if wind_speed < 4 and humidity > 80:
+        precautions.append("🧼 Use air purifiers or natural ventilation to improve indoor air.")
+    if co2 > 450 or no2 > 60:
+        precautions.append("😷 Limit outdoor activity during peak pollution hours.")
 
-    precautions.append("🌳 Support afforestation and monitor alerts regularly")
+    precautions.append("🌳 Support afforestation and check updates on local air quality.")
 
-
-   
     return {
-        "location": {"lat": data.lat, "lon": data.lon},
+        "location": {"lat": lat, "lon": lon},
         "weather": weather,
         "fire": fire,
         "co2": round(co2, 2),
