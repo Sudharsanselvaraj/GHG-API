@@ -133,6 +133,23 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         precautions.append("🚫 Avoid any open waste or crop burning activities")
 
     precautions.append("🌳 Support afforestation and monitor alerts regularly")
+    # 🛰️ Disaster Intelligence Mode
+    disaster_info = None
+    if fire_count > 1000 and wind_speed > 7:
+        disaster_info = {
+            "fire_cluster_alert": "🔥 Large fire cluster + strong wind detected.",
+            "action": "Notify authorities. Risk of smoke drifting toward population zones."
+        }
+
+    # 🌱 CO₂ Compensation Planner
+    weekly_co2_estimate = co2 * 24 * 7 / 1e6  # ppm to tons estimate
+    trees_required = int(weekly_co2_estimate * 48)
+    fuel_offset_kg = int(weekly_co2_estimate * 1000)
+    compensation_plan = {
+        "trees_required": trees_required,
+        "fuel_offset_kg": fuel_offset_kg,
+        "message": f"To offset this week's emissions, plant ~{trees_required} trees or reduce ~{fuel_offset_kg} kg CO₂."
+    }
 
     forecast = []
     if forecast_hourly:
