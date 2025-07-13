@@ -111,23 +111,7 @@ def predict(data: LocationInput):
 
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
-
-   
-    return {
-        "location": {"lat": data.lat, "lon": data.lon},
-        "weather": weather,
-        "fire": fire,
-        "co2": round(co2, 2),
-        "no2": round(no2, 2),
-        "alerts": {
-            "co2": "⚠️ High" if co2 > 450 else "✅ Safe",
-            "no2": "⚠️ Hazardous" if no2 > 80 else "✅ Acceptable"
-        },
-        "ghg_causes": ghg_causes,
-        "ghg_effects": ghg_effects,
-        "precautions": precautions
-    }
- # --- Intelligent Output: Causes, Effects, Precautions ---
+     # --- Intelligent Output: Causes, Effects, Precautions ---
     ghg_causes = []
     ghg_effects = []
     precautions = []
@@ -155,3 +139,20 @@ def predict(data: LocationInput):
         precautions.append("🚫 Avoid any open waste or crop burning activities")
 
     precautions.append("🌳 Support afforestation and monitor alerts regularly")
+
+
+   
+    return {
+        "location": {"lat": data.lat, "lon": data.lon},
+        "weather": weather,
+        "fire": fire,
+        "co2": round(co2, 2),
+        "no2": round(no2, 2),
+        "alerts": {
+            "co2": "⚠️ High" if co2 > 450 else "✅ Safe",
+            "no2": "⚠️ Hazardous" if no2 > 80 else "✅ Acceptable"
+        },
+        "ghg_causes": ghg_causes,
+        "ghg_effects": ghg_effects,
+        "precautions": precautions
+    }
