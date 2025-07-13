@@ -7,4 +7,5 @@ services:
     envVars:
       - key: PORT
         value: 10000
-
+      - key: GEMINI_API_KEY
+        fromEnv: GEMINI_API_KEY
