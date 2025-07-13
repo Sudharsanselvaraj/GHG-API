@@ -97,7 +97,7 @@ def fetch_weather(lat, lon):
 
 def fetch_ghg_insights(co2, no2, lat, lon):
     try:
-        api_key = os.getenv("AIzaSyBLjR1cip0yqzRCk7f5g5tkQWeebUHpV6I")
+        api_key = os.getenv("GEMINI_API_KEY")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
 
         prompt = f"""
