@@ -101,23 +101,13 @@ def fetch_ghg_insights(co2, no2, lat, lon):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
 
         prompt = f"""
-        Based on the current CO2 level of {co2:.2f} ppm and NO2 level of {no2:.2f} ppb at location ({lat}, {lon}), 
+        Based on the current CO₂ level of {co2:.2f} ppm and NO₂ level of {no2:.2f} ppb at location ({lat}, {lon}),
         list:
-        1. Causes
-        2. Effects
-        3. Precautions
-
-        Format the response strictly like this:
-
-        Causes:
-        - ...
-        - ...
-        Effects:
-        - ...
-        - ...
-        Precautions:
-        - ...
-        - ...
+        1. Causes (as bullet points)
+        2. Effects (as bullet points)
+        3. Precautions (as bullet points)
+        Format:
+        Causes:\n- ...\nEffects:\n- ...\nPrecautions:\n- ...
         """
 
         payload = {
@@ -130,27 +120,33 @@ def fetch_ghg_insights(co2, no2, lat, lon):
             ]
         }
 
-        response = requests.post(url, json=payload)
+        response = requests.post(url, json=payload, timeout=20)
         result = response.json()
-        text = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
 
-        print("🔍 Gemini API Raw Text:\n", text)
+        # Try to extract raw text from all possible parts
+        parts = result.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+        text = ""
+        for p in parts:
+            if isinstance(p, dict) and "text" in p:
+                text += p["text"]
+
+        print("\n🔍 Gemini API Raw Text:\n", text)
 
         causes, effects, precautions = [], [], []
 
         if "Causes:" in text:
             sections = text.split("Causes:")[-1].split("Effects:")
-            causes = [line.strip("- ") for line in sections[0].strip().split("\n") if line.strip()]
+            causes = [line.strip("-• ").strip() for line in sections[0].strip().split("\n") if line.strip()]
             if len(sections) > 1:
                 sub = sections[1].split("Precautions:")
-                effects = [line.strip("- ") for line in sub[0].strip().split("\n") if line.strip()]
+                effects = [line.strip("-• ").strip() for line in sub[0].strip().split("\n") if line.strip()]
                 if len(sub) > 1:
-                    precautions = [line.strip("- ") for line in sub[1].strip().split("\n") if line.strip()]
+                    precautions = [line.strip("-• ").strip() for line in sub[1].strip().split("\n") if line.strip()]
 
         return causes, effects, precautions
 
     except Exception as e:
-        print("Gemini API error:", e)
+        print("⚠️ Gemini API error:", e)
         return [], [], []
 
 @app.get("/")
