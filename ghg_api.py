@@ -5,10 +5,6 @@ import joblib
 import pandas as pd
 import numpy as np
 import requests
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 app = FastAPI()
 
@@ -95,68 +91,6 @@ def fetch_weather(lat, lon):
     except Exception:
         return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}, {}
 
-def fetch_ghg_insights(co2, no2, lat, lon):
-    try:
-        api_key = os.getenv("GEMINI_API_KEY")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
-
-        prompt = f"""
-        Based on the current CO₂ level of {co2:.2f} ppm and NO₂ level of {no2:.2f} ppb at location ({lat}, {lon}),
-        list:
-        1. Causes (as bullet points)
-        2. Effects (as bullet points)
-        3. Precautions (as bullet points)
-        Format:
-        Causes:\n- ...\nEffects:\n- ...\nPrecautions:\n- ...
-        """
-
-        payload = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt.strip()}
-                    ]
-                }
-            ]
-        }
-
-        response = requests.post(url, json=payload, timeout=20)
-        result = response.json()
-
-        parts = result.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        text = ""
-        for p in parts:
-            if isinstance(p, dict) and "text" in p:
-                text += p["text"]
-
-        print("\n🔍 Gemini API Raw Text:\n", text)
-
-        causes, effects, precautions = [], [], []
-
-        if "Causes:" in text:
-            try:
-                sections = text.split("Causes:")[1].split("Effects:")
-                causes_raw = sections[0]
-                effects_raw, precautions_raw = "", ""
-                if len(sections) > 1:
-                    parts2 = sections[1].split("Precautions:")
-                    effects_raw = parts2[0]
-                    if len(parts2) > 1:
-                        precautions_raw = parts2[1]
-
-                causes = [line.strip("-• ").strip() for line in causes_raw.strip().splitlines() if line.strip()]
-                effects = [line.strip("-• ").strip() for line in effects_raw.strip().splitlines() if line.strip()]
-                precautions = [line.strip("-• ").strip() for line in precautions_raw.strip().splitlines() if line.strip()]
-
-            except Exception as parse_error:
-                print("⚠️ Parsing error:", parse_error)
-
-        return causes, effects, precautions
-
-    except Exception as e:
-        print("⚠️ Gemini API error:", e)
-        return [], [], []
-
 @app.get("/")
 def home():
     return {"message": "🌍 GHG-FuseNet API is live!"}
@@ -171,9 +105,33 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
 
-    lat, lon = data.lat, data.lon
-    causes, effects, precautions = fetch_ghg_insights(co2, no2, lat, lon)
+    ghg_causes = []
+    ghg_effects = []
+    precautions = []
 
+    lat, lon = data.lat, data.lon
+    wind_speed = weather.get("wind_speed", 0)
+    humidity = weather.get("humidity", 0)
+    fire_count = fire.get("fire_count", 0)
+
+    if 8 <= lat <= 30 and fire_count > 300:
+        ghg_causes.append("🔥 Crop burning and forest fires are active in your region.")
+    if co2 > 250:
+        ghg_causes.append("🚗 Fossil fuel combustion and regional fire hotspots")
+    if fire_count > 100:
+        ghg_causes.append("🔥 Large-scale biomass burning detected nearby")
+
+    if no2 > 30:
+        ghg_effects.append("😷 High respiratory risk: asthma, lung inflammation")
+    elif co2 > 200:
+        ghg_effects.append("😓 Fatigue and reduced concentration in vulnerable groups")
+
+    if co2 > 350:
+        precautions.append("✅ Stay hydrated and ventilate indoor spaces")
+    if fire_count > 100:
+        precautions.append("🚫 Avoid any open waste or crop burning activities")
+
+    precautions.append("🌳 Support afforestation and monitor alerts regularly")
     forecast = []
     if forecast_hourly:
         times = forecast_hourly.get("time", [])
@@ -213,8 +171,8 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
             "co2": "⚠️ High" if co2 > 300 else "✅ Safe",
             "no2": "⚠️ Hazardous" if no2 > 40 else "✅ Acceptable"
         },
-        "ghg_causes": causes,
-        "ghg_effects": effects,
+        "ghg_causes": ghg_causes,
+        "ghg_effects": ghg_effects,
         "precautions": precautions,
         "forecast": forecast
     }
