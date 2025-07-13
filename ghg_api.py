@@ -5,7 +5,10 @@ import joblib
 import pandas as pd
 import numpy as np
 import requests
-from datetime import datetime, timedelta
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
 
@@ -92,6 +95,37 @@ def fetch_weather(lat, lon):
     except Exception:
         return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}, {}
 
+def fetch_ghg_insights(co2, no2, lat, lon):
+    try:
+        hf_token = os.getenv("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")
+        headers = {"Authorization": f"Bearer {hf_token}"}
+        prompt = f"Based on the current CO2 level of {co2:.2f} ppm and NO2 level of {no2:.2f} ppb at latitude {lat} and longitude {lon}, explain the causes, effects on health/environment, and precautions citizens should take. Return each as a list."
+        payload = {"inputs": prompt}
+        url = "https://api-inference.huggingface.co/models/google/flan-t5-base"
+        response = requests.post(url, headers=headers, json=payload, timeout=15)
+
+        result = response.json()
+        text = result[0]['generated_text'] if isinstance(result, list) else ""
+
+        causes = []
+        effects = []
+        precautions = []
+
+        if "Causes:" in text:
+            sections = text.split("Causes:")[-1].split("Effects:")
+            causes = [line.strip("- ") for line in sections[0].strip().split("\n") if line.strip()]
+            if len(sections) > 1:
+                sub = sections[1].split("Precautions:")
+                effects = [line.strip("- ") for line in sub[0].strip().split("\n") if line.strip()]
+                if len(sub) > 1:
+                    precautions = [line.strip("- ") for line in sub[1].strip().split("\n") if line.strip()]
+
+        return causes, effects, precautions
+
+    except Exception as e:
+        print("HuggingFace API error:", e)
+        return [], [], []
+
 @app.get("/")
 def home():
     return {"message": "🌍 GHG-FuseNet API is live!"}
@@ -106,33 +140,9 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
 
-    ghg_causes = []
-    ghg_effects = []
-    precautions = []
-
     lat, lon = data.lat, data.lon
-    wind_speed = weather.get("wind_speed", 0)
-    humidity = weather.get("humidity", 0)
-    fire_count = fire.get("fire_count", 0)
+    causes, effects, precautions = fetch_ghg_insights(co2, no2, lat, lon)
 
-    if 8 <= lat <= 30 and fire_count > 300:
-        ghg_causes.append("🔥 Crop burning and forest fires are active in your region.")
-    if co2 > 250:
-        ghg_causes.append("🚗 Fossil fuel combustion and regional fire hotspots")
-    if fire_count > 100:
-        ghg_causes.append("🔥 Large-scale biomass burning detected nearby")
-
-    if no2 > 30:
-        ghg_effects.append("😷 High respiratory risk: asthma, lung inflammation")
-    elif co2 > 200:
-        ghg_effects.append("😓 Fatigue and reduced concentration in vulnerable groups")
-
-    if co2 > 350:
-        precautions.append("✅ Stay hydrated and ventilate indoor spaces")
-    if fire_count > 100:
-        precautions.append("🚫 Avoid any open waste or crop burning activities")
-
-    precautions.append("🌳 Support afforestation and monitor alerts regularly")
     forecast = []
     if forecast_hourly:
         times = forecast_hourly.get("time", [])
@@ -162,7 +172,6 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
                 "no2": round(pred_no2, 2)
             })
 
-
     return {
         "location": {"lat": lat, "lon": lon},
         "weather": weather,
@@ -173,8 +182,8 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
             "co2": "⚠️ High" if co2 > 300 else "✅ Safe",
             "no2": "⚠️ Hazardous" if no2 > 40 else "✅ Acceptable"
         },
-        "ghg_causes": ghg_causes,
-        "ghg_effects": ghg_effects,
+        "ghg_causes": causes,
+        "ghg_effects": effects,
         "precautions": precautions,
         "forecast": forecast
     }
