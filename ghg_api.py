@@ -105,33 +105,26 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
 
+    # Logic based on CO2 and NO2 only
     ghg_causes = []
-    ghg_effects = []
-    precautions = []
-
-    lat, lon = data.lat, data.lon
-    wind_speed = weather.get("wind_speed", 0)
-    humidity = weather.get("humidity", 0)
-    fire_count = fire.get("fire_count", 0)
-
-    if 8 <= lat <= 30 and fire_count > 300:
-        ghg_causes.append("🔥 Crop burning and forest fires are active in your region.")
-    if co2 > 250:
-        ghg_causes.append("🚗 Fossil fuel combustion and regional fire hotspots")
-    if fire_count > 100:
-        ghg_causes.append("🔥 Large-scale biomass burning detected nearby")
-
+    if co2 > 400:
+        ghg_causes.append("🚗 Elevated fossil fuel emissions likely in the area.")
     if no2 > 30:
-        ghg_effects.append("😷 High respiratory risk: asthma, lung inflammation")
-    elif co2 > 200:
-        ghg_effects.append("😓 Fatigue and reduced concentration in vulnerable groups")
+        ghg_causes.append("🏭 Industrial activity or vehicle exhaust may be high.")
 
-    if co2 > 350:
-        precautions.append("✅ Stay hydrated and ventilate indoor spaces")
-    if fire_count > 100:
-        precautions.append("🚫 Avoid any open waste or crop burning activities")
+    ghg_effects = []
+    if co2 > 400:
+        ghg_effects.append("🌡 Potential for long-term climate warming.")
+    if no2 > 30:
+        ghg_effects.append("😷 Respiratory irritation and increased asthma risk.")
 
-    precautions.append("🌳 Support afforestation and monitor alerts regularly")
+    precautions = []
+    if co2 > 400:
+        precautions.append("💨 Ensure proper indoor ventilation.")
+    if no2 > 30:
+        precautions.append("😷 Wear masks in polluted environments.")
+    precautions.append("🌳 Support clean energy and afforestation efforts.")
+
     forecast = []
     if forecast_hourly:
         times = forecast_hourly.get("time", [])
@@ -162,7 +155,7 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
             })
 
     return {
-        "location": {"lat": lat, "lon": lon},
+        "location": {"lat": data.lat, "lon": data.lon},
         "weather": weather,
         "fire": fire,
         "co2": round(co2, 2),
