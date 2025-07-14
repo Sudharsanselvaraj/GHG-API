@@ -28,12 +28,10 @@ try:
     df_fires = pd.read_csv("fire_archive_SV-C2_635121.csv")
     df_fires = df_fires.dropna(subset=['latitude', 'longitude'])
     df_fires['confidence'] = pd.to_numeric(df_fires['confidence'], errors='coerce').fillna(60)
-
     df_fires = df_fires[
         (df_fires['latitude'] >= 5) & (df_fires['latitude'] <= 40) &
         (df_fires['longitude'] >= 60) & (df_fires['longitude'] <= 100)
     ].reset_index(drop=True)
-
 except Exception as e:
     print("❌ Error loading model or data:", e)
     raise
@@ -56,7 +54,7 @@ def get_fires_near(lat, lon, radius_km=50):
 
     dlat = lat2 - lat1
     dlon = lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
     c = 2 * np.arcsin(np.sqrt(a))
     distances = R * c
 
@@ -159,7 +157,6 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     weather, forecast_hourly = fetch_weather(data.lat, data.lon)
     fire, fire_points = get_fires_near(data.lat, data.lon)
     features = {**fire, **weather}
-
     df_input = pd.DataFrame([features])[feature_order]
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
