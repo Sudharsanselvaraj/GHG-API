@@ -27,8 +27,7 @@ try:
 
     df_fires = pd.read_csv("fire_archive_SV-C2_635121.csv")
     df_fires = df_fires.dropna(subset=['latitude', 'longitude'])
-    df_fires['confidence'] = pd.to_numeric(df_fires['confidence'], errors='coerce')
-    df_fires['confidence'] = df_fires['confidence'].fillna(60)
+    df_fires['confidence'] = pd.to_numeric(df_fires['confidence'], errors='coerce').fillna(60)
 
     df_fires = df_fires[
         (df_fires['latitude'] >= 5) & (df_fires['latitude'] <= 40) &
@@ -57,7 +56,7 @@ def get_fires_near(lat, lon, radius_km=50):
 
     dlat = lat2 - lat1
     dlon = lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
     c = 2 * np.arcsin(np.sqrt(a))
     distances = R * c
 
@@ -119,15 +118,36 @@ def get_nearby_places(lat, lon, radius=3000, types=["school", "hospital"]):
                     })
             except Exception:
                 continue
-
     return results
+
+def generate_disaster_map(lat, lon, fire_points, nearby_places=[]):
+    m = folium.Map(location=[lat, lon], zoom_start=8)
+    folium.Marker([lat, lon], tooltip="User Location", icon=folium.Icon(color='blue')).add_to(m)
+    heat_data = [[row['latitude'], row['longitude']] for _, row in fire_points.iterrows()]
+    HeatMap(heat_data, radius=15, blur=20, gradient={0.4: 'blue', 0.65: 'lime', 1: 'red'}).add_to(m)
+
+    for place in nearby_places:
+        folium.Marker(
+            [place['lat'], place['lon']],
+            tooltip=f"{place['type'].title()}: {place['name']}",
+            icon=folium.Icon(color="red", icon="info-sign")
+        ).add_to(m)
+
+    map_path = "ghg_alert_map.html"
+    m.save(map_path)
+    return map_path
+
+def simulate_notifications(disaster_risks):
+    print("\n📢 Simulated Alert Notification:")
+    for name, risk in disaster_risks.items():
+        if risk['status'] != "Safe":
+            print(f"Sending ALERT email/SMS for {name.upper()}: {risk['status']} - {risk['reason']}")
+        else:
+            print(f"{name.upper()} is safe. No alert sent.")
 
 @app.get("/")
 def home():
     return {"message": "🌍 GHG-FuseNet API is live!"}
-
-# Rest of the code is now updated to include this logic as required.
-
 
 @app.post("/predict/")
 def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
