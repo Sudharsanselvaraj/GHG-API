@@ -7,13 +7,6 @@ import numpy as np
 import requests
 import folium
 from folium.plugins import HeatMap
-import os
-from datetime import datetime
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from PIL import Image
-import base64
-import time
 
 app = FastAPI()
 
@@ -25,20 +18,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load models and fire data
-model_co2 = joblib.load("model_co2.pkl")
-model_no2 = joblib.load("model_no2.pkl")
-feature_order = joblib.load("feature_order.pkl")
+# --- Load models and fire data ---
+try:
+    model_co2 = joblib.load("model_co2.pkl")
+    model_no2 = joblib.load("model_no2.pkl")
+    feature_order = joblib.load("feature_order.pkl")
 
-df_fires = pd.read_csv("fire_archive_SV-C2_635121.csv")
-df_fires = df_fires.dropna(subset=['latitude', 'longitude'])
-df_fires['confidence'] = pd.to_numeric(df_fires['confidence'], errors='coerce').fillna(60)
-df_fires = df_fires[
-    (df_fires['latitude'] >= 5) & (df_fires['latitude'] <= 40) &
-    (df_fires['longitude'] >= 60) & (df_fires['longitude'] <= 100)
-].reset_index(drop=True)
+    df_fires = pd.read_csv("fire_archive_SV-C2_635121.csv")
+    df_fires = df_fires.dropna(subset=['latitude', 'longitude'])
+    df_fires['confidence'] = pd.to_numeric(df_fires['confidence'], errors='coerce').fillna(60)
+    df_fires = df_fires[
+        (df_fires['latitude'] >= 5) & (df_fires['latitude'] <= 40) &
+        (df_fires['longitude'] >= 60) & (df_fires['longitude'] <= 100)
+    ].reset_index(drop=True)
+except Exception as e:
+    print("❌ Error loading model or data:", e)
+    raise
 
-# Input model
 class LocationInput(BaseModel):
     lat: float
     lon: float
@@ -52,7 +48,7 @@ def get_fires_near(lat, lon, radius_km=50):
     lat1, lon1 = np.radians(lat), np.radians(lon)
     lat2, lon2 = np.radians(df_local['latitude'].values), np.radians(df_local['longitude'].values)
     dlat, dlon = lat2 - lat1, lon2 - lon1
-    a = np.sin(dlat/2)**2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)**2
+    a = np.sin(dlat/2)*2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)*2
     c = 2 * np.arcsin(np.sqrt(a))
     df_local['distance'] = R * c
     df_nearby = df_local[df_local['distance'] <= radius_km]
@@ -85,6 +81,7 @@ def fetch_weather(lat, lon):
     except Exception:
         return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}, {}
 
+# ✅ NEW Overpass-powered accurate nearby place detection
 def get_nearby_places(lat, lon, radius_km=10, types=["school", "hospital"], max_results_per_type=5):
     overpass_url = "http://overpass-api.de/api/interpreter"
     radius_m = radius_km * 1000
@@ -95,29 +92,40 @@ def get_nearby_places(lat, lon, radius_km=10, types=["school", "hospital"], max_
         relation(around:{radius_m},{lat},{lon})["amenity"="{t}"];
         """ for t in types
     ])
-    query = f"[out:json];({type_queries});out center;"
-    headers = {"User-Agent": "ghg-alert-system"}
+    query = f"""
+    [out:json];
+    (
+        {type_queries}
+    );
+    out center;
+    """
 
+    headers = {"User-Agent": "ghg-alert-system"}
     try:
         response = requests.post(overpass_url, data=query, headers=headers, timeout=25)
         data = response.json()
-    except:
+    except Exception as e:
+        print("❌ Overpass API error:", e)
         return []
 
     places_by_type = {t: [] for t in types}
+
     for element in data.get("elements", []):
         tags = element.get("tags", {})
         place_type = tags.get("amenity")
         if place_type not in types:
             continue
+
         name = tags.get("name", f"{place_type.title()}")
+
         if "lat" in element:
             elat, elon = element["lat"], element["lon"]
         elif "center" in element:
             elat, elon = element["center"]["lat"], element["center"]["lon"]
         else:
             continue
-        distance = np.sqrt((lat - elat)**2 + (lon - elon)**2) * 111
+
+        distance = np.sqrt((lat - elat)*2 + (lon - elon)*2) * 111
         places_by_type[place_type].append({
             "name": name,
             "type": place_type,
@@ -125,17 +133,17 @@ def get_nearby_places(lat, lon, radius_km=10, types=["school", "hospital"], max_
             "lon": elon,
             "distance_km": round(distance, 2)
         })
+
+    # Limit to top N results per type
     results = []
     for t in types:
         sorted_places = sorted(places_by_type[t], key=lambda x: x["distance_km"])
         results.extend(sorted_places[:max_results_per_type])
+
     return results
 
-def generate_disaster_map_png(lat, lon, fire_points, nearby_places=[]):
-    # Clean up old maps
-    for f in os.listdir("maps"):
-        os.remove(os.path.join("maps", f))
 
+def generate_disaster_map(lat, lon, fire_points, nearby_places=[]):
     m = folium.Map(location=[lat, lon], zoom_start=8)
     folium.Marker([lat, lon], tooltip="User Location", icon=folium.Icon(color='blue')).add_to(m)
     heat_data = [[row['latitude'], row['longitude']] for _, row in fire_points.iterrows()]
@@ -146,29 +154,21 @@ def generate_disaster_map_png(lat, lon, fire_points, nearby_places=[]):
             tooltip=f"{place['type'].title()}: {place['name']}",
             icon=folium.Icon(color="red", icon="info-sign")
         ).add_to(m)
+    map_path = "ghg_alert_map.html"
+    m.save(map_path)
+    return map_path
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    map_html = f"maps/ghg_alert_map_{timestamp}.html"
-    map_png = f"maps/ghg_alert_map_{timestamp}.png"
-    m.save(map_html)
+def simulate_notifications(disaster_risks):
+    print("\n📢 Simulated Alert Notification:")
+    for name, risk in disaster_risks.items():
+        if risk['status'] != "Safe":
+            print(f"Sending ALERT email/SMS for {name.upper()}: {risk['status']} - {risk['reason']}")
+        else:
+            print(f"{name.upper()} is safe. No alert sent.")
 
-    # Render to PNG using headless browser
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1024,768")
-    driver = webdriver.Chrome(options=options)
-    driver.get("file://" + os.path.abspath(map_html))
-    time.sleep(2)
-    driver.save_screenshot(map_png)
-    driver.quit()
-
-    with open(map_png, "rb") as image_file:
-        image_bytes = image_file.read()
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-
-    return map_b64, map_png
+@app.get("/")
+def home():
+    return {"message": "🌍 GHG-FuseNet API is live!"}
 
 @app.post("/predict/")
 def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
@@ -188,17 +188,38 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     }
 
     if fire["fire_count"] > 1000 or fire["avg_frp"] > 10:
-        disaster_risks["fire_risk"] = {"status": "Alert", "reason": "🔥 High fire activity and FRP."}
+        disaster_risks["fire_risk"] = {
+            "status": "Alert",
+            "reason": "🔥 Fire activity is high due to elevated fire counts and energy release (FRP)."
+        }
     elif fire["fire_count"] > 300:
-        disaster_risks["fire_risk"] = {"status": "Caution", "reason": "⚠️ Moderate fire activity nearby."}
+        disaster_risks["fire_risk"] = {
+            "status": "Caution",
+            "reason": "⚠ Moderate fire activity nearby. Stay cautious."
+        }
+
     if weather["temperature"] > 38:
-        disaster_risks["heatwave"] = {"status": "Alert", "reason": "🌡 Heatwave warning issued."}
+        disaster_risks["heatwave"] = {
+            "status": "Alert",
+            "reason": "🌡 Extremely high temperatures indicate a heatwave risk."
+        }
     if weather["wind_speed"] > 25 and weather["pressure"] < 1000:
-        disaster_risks["storm_warning"] = {"status": "Alert", "reason": "🌪 Storm conditions possible."}
+        disaster_risks["storm_warning"] = {
+            "status": "Alert",
+            "reason": "🌪 Strong winds and low pressure could signal storm conditions."
+        }
     if weather["humidity"] < 20 and fire["fire_count"] > 200:
-        disaster_risks["drought_alert"] = {"status": "Alert", "reason": "🚱 Possible drought alert."}
+        disaster_risks["drought_alert"] = {
+            "status": "Alert",
+            "reason": "🚱 Low humidity and high fire activity suggest possible drought conditions."
+        }
     if co2 > 400 and no2 > 40:
-        disaster_risks["smog_alert"] = {"status": "Alert", "reason": "🌫 Dangerous air quality."}
+        disaster_risks["smog_alert"] = {
+            "status": "Alert",
+            "reason": "🌫 Dangerous air quality from high CO₂ and NO₂. Smog alert issued."
+        }
+
+    simulate_notifications(disaster_risks)
 
     ghg_causes, ghg_effects, precautions = [], [], []
     if co2 > 300:
@@ -236,7 +257,7 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         } for i in range(limit)]
 
     nearby_places = get_nearby_places(data.lat, data.lon)
-    map_b64, map_file = generate_disaster_map_png(data.lat, data.lon, fire_points, nearby_places)
+    map_path = generate_disaster_map(data.lat, data.lon, fire_points, nearby_places)
 
     return {
         "location": {"lat": data.lat, "lon": data.lon},
@@ -245,14 +266,14 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         "co2": round(co2, 2),
         "no2": round(no2, 2),
         "alerts": {
-            "co2": "⚠️ High" if co2 > 300 else "✅ Safe",
-            "no2": "⚠️ Hazardous" if no2 > 30 else "✅ Acceptable"
+            "co2": "⚠ High" if co2 > 300 else "✅ Safe",
+            "no2": "⚠ Hazardous" if no2 > 30 else "✅ Acceptable"
         },
         "ghg_causes": ghg_causes,
         "ghg_effects": ghg_effects,
         "precautions": precautions,
         "forecast": forecast,
         "disaster_risks": disaster_risks,
-        "affected_nearby_places": nearby_places,
-        "map_png_base64": map_b64
+        "map_url": map_path,
+        "affected_nearby_places": nearby_places
     }
