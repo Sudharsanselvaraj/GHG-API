@@ -1,9 +1,9 @@
 fastapi
 uvicorn
+pydantic
 pandas
+numpy
 joblib
-scikit-learn
-python-dotenv
-geopy
 requests
-matplotlib
+folium
+matplotib
