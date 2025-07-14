@@ -19,7 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Load Models, Feature Order, and FIRMS CSV ---
+# --- Load Models and Data ---
 try:
     model_co2 = joblib.load("model_co2.pkl")
     model_no2 = joblib.load("model_no2.pkl")
@@ -56,7 +56,7 @@ def get_fires_near(lat, lon, radius_km=50):
 
     dlat = lat2 - lat1
     dlon = lon2 - lon1
-    a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
+    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
     c = 2 * np.arcsin(np.sqrt(a))
     distances = R * c
 
@@ -92,33 +92,38 @@ def fetch_weather(lat, lon):
     except Exception:
         return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}, {}
 
-def get_nearby_places(lat, lon, radius=3000, types=["school", "hospital"]):
+def get_nearby_places(lat, lon, types=["school", "hospital"], max_distance_km=50):
     results = []
     for place_type in types:
         url = (
             f"https://nominatim.openstreetmap.org/search"
-            f"?q={place_type}&format=json&limit=10"
-            f"&lat={lat}&lon={lon}&radius={radius}"
+            f"?q={place_type}&format=json&limit=20"
+            f"&lat={lat}&lon={lon}"
         )
         headers = {"User-Agent": "ghg-alert-system"}
-        response = requests.get(url, headers=headers).json()
+        try:
+            response = requests.get(url, headers=headers, timeout=10).json()
+        except Exception as e:
+            print(f"Error fetching {place_type} data:", e)
+            continue
 
         for place in response:
             try:
                 place_lat = float(place["lat"])
                 place_lon = float(place["lon"])
-                d = np.sqrt((lat - place_lat)**2 + (lon - place_lon)**2) * 111
-                if d <= 100:
+                distance = np.sqrt((lat - place_lat)**2 + (lon - place_lon)**2) * 111
+                if distance <= max_distance_km:
                     results.append({
                         "name": place.get("display_name", place_type.title()),
                         "type": place_type,
                         "lat": place_lat,
                         "lon": place_lon,
-                        "distance_km": round(d, 2)
+                        "distance_km": round(distance, 2)
                     })
             except Exception:
                 continue
-    return results
+
+    return sorted(results, key=lambda x: x["distance_km"])
 
 def generate_disaster_map(lat, lon, fire_points, nearby_places=[]):
     m = folium.Map(location=[lat, lon], zoom_start=8)
