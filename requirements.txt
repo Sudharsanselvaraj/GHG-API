@@ -6,4 +6,5 @@ numpy
 joblib
 requests
 folium
+scikit-learn
 matplotlib
