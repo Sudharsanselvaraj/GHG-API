@@ -108,7 +108,7 @@ def get_nearby_places(lat, lon, radius=3000, types=["school", "hospital"]):
                 place_lat = float(place["lat"])
                 place_lon = float(place["lon"])
                 d = np.sqrt((lat - place_lat)**2 + (lon - place_lon)**2) * 111
-                if d <= 10:
+                if d <= 100:
                     results.append({
                         "name": place.get("display_name", place_type.title()),
                         "type": place_type,
