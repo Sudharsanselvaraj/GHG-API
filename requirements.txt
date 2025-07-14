@@ -9,3 +9,5 @@ folium
 scikit-learn
 matplotlib
 selenium
+webdriver-manager
+Pillow
