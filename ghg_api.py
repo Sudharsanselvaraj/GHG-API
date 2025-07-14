@@ -134,7 +134,7 @@ def generate_disaster_map(lat, lon, fire_points, nearby_places=[]):
             icon=folium.Icon(color="red", icon="info-sign")
         ).add_to(m)
 
-    map_path = "/mnt/data/ghg_alert_map.html"
+   map_path = "ghg_alert_map.html"
     m.save(map_path)
     return map_path
 
