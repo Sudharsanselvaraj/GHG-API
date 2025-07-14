@@ -5,6 +5,8 @@ import joblib
 import pandas as pd
 import numpy as np
 import requests
+import folium
+from folium.plugins import HeatMap
 
 app = FastAPI()
 
@@ -68,7 +70,7 @@ def get_fires_near(lat, lon, radius_km=50):
         "max_frp": df_nearby["frp"].max() if not df_nearby.empty else 0,
         "avg_confidence": df_nearby["confidence"].mean() if not df_nearby.empty else 0,
         "avg_brightness": df_nearby["brightness"].mean() if not df_nearby.empty else 0,
-    }
+    }, df_nearby
 
 def fetch_weather(lat, lon):
     try:
@@ -91,6 +93,59 @@ def fetch_weather(lat, lon):
     except Exception:
         return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}, {}
 
+def get_nearby_places(lat, lon, radius=3000, types=["school", "hospital"]):
+    results = []
+    for place_type in types:
+        url = (
+            f"https://nominatim.openstreetmap.org/search"
+            f"?q={place_type}&format=json&limit=5"
+            f"&lat={lat}&lon={lon}&radius={radius}"
+        )
+        headers = {"User-Agent": "ghg-alert-system"}
+        response = requests.get(url, headers=headers).json()
+
+        for place in response:
+            try:
+                place_lat = float(place["lat"])
+                place_lon = float(place["lon"])
+                d = np.sqrt((lat - place_lat)**2 + (lon - place_lon)**2) * 111
+                results.append({
+                    "name": place.get("display_name", place_type.title()),
+                    "type": place_type,
+                    "lat": place_lat,
+                    "lon": place_lon,
+                    "distance_km": round(d, 2)
+                })
+            except Exception:
+                continue
+
+    return results
+
+def generate_disaster_map(lat, lon, fire_points, nearby_places=[]):
+    m = folium.Map(location=[lat, lon], zoom_start=8)
+    folium.Marker([lat, lon], tooltip="User Location", icon=folium.Icon(color='blue')).add_to(m)
+    heat_data = [[row['latitude'], row['longitude']] for _, row in fire_points.iterrows()]
+    HeatMap(heat_data, radius=15, blur=20, gradient={0.4: 'blue', 0.65: 'lime', 1: 'red'}).add_to(m)
+
+    for place in nearby_places:
+        folium.Marker(
+            [place['lat'], place['lon']],
+            tooltip=f"{place['type'].title()}: {place['name']}",
+            icon=folium.Icon(color="red", icon="info-sign")
+        ).add_to(m)
+
+    map_path = "/mnt/data/ghg_alert_map.html"
+    m.save(map_path)
+    return map_path
+
+def simulate_notifications(disaster_risks):
+    print("\n📢 Simulated Alert Notification:")
+    for name, risk in disaster_risks.items():
+        if risk['status'] != "Safe":
+            print(f"Sending ALERT email/SMS for {name.upper()}: {risk['status']} - {risk['reason']}")
+        else:
+            print(f"{name.upper()} is safe. No alert sent.")
+
 @app.get("/")
 def home():
     return {"message": "🌍 GHG-FuseNet API is live!"}
@@ -98,20 +153,19 @@ def home():
 @app.post("/predict/")
 def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
     weather, forecast_hourly = fetch_weather(data.lat, data.lon)
-    fire = get_fires_near(data.lat, data.lon)
+    fire, fire_points = get_fires_near(data.lat, data.lon)
     features = {**fire, **weather}
 
     df_input = pd.DataFrame([features])[feature_order]
     co2 = model_co2.predict(df_input)[0]
     no2 = model_no2.predict(df_input)[0]
 
-    # Disaster alerts structure with default Safe status and reason
     disaster_risks = {
         "fire_risk": {"status": "Safe", "reason": "No active fire hazards nearby."},
-        "heatwave": {"status": "Safe", "reason": "Temperature levels are normal."},
-        "storm_warning": {"status": "Safe", "reason": "Wind and pressure are stable."},
-        "drought_alert": {"status": "Safe", "reason": "Humidity is adequate, no drought risk."},
-        "smog_alert": {"status": "Safe", "reason": "Air quality within safe limits."},
+        "heatwave": {"status": "Safe", "reason": "Temperature levels are within a normal range."},
+        "storm_warning": {"status": "Safe", "reason": "Wind speed and atmospheric pressure are stable."},
+        "drought_alert": {"status": "Safe", "reason": "No signs of drought; humidity is sufficient."},
+        "smog_alert": {"status": "Safe", "reason": "Air quality is currently acceptable."},
     }
 
     if fire["fire_count"] > 1000 or fire["avg_frp"] > 10:
@@ -148,6 +202,8 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
             "status": "Alert",
             "reason": "🌫 Dangerous air quality from high CO₂ and NO₂. Smog alert issued."
         }
+
+    simulate_notifications(disaster_risks)
 
     ghg_causes = []
     if co2 > 300:
@@ -195,6 +251,9 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
             "no2": round(pred_no2[i], 2)
         } for i in range(limit)]
 
+    nearby_places = get_nearby_places(data.lat, data.lon)
+    map_path = generate_disaster_map(data.lat, data.lon, fire_points, nearby_places)
+
     return {
         "location": {"lat": data.lat, "lon": data.lon},
         "weather": weather,
@@ -209,5 +268,7 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         "ghg_effects": ghg_effects,
         "precautions": precautions,
         "forecast": forecast,
-        "disaster_risks": disaster_risks
+        "disaster_risks": disaster_risks,
+        "map_url": map_path,
+        "affected_nearby_places": nearby_places
     }
