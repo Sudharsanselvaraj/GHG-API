@@ -81,7 +81,6 @@ def fetch_weather(lat, lon):
     except Exception:
         return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}, {}
 
-# ✅ NEW Overpass-powered accurate nearby place detection
 def get_nearby_places(lat, lon, radius_km=10, types=["school", "hospital"], max_results_per_type=5):
     overpass_url = "http://overpass-api.de/api/interpreter"
     radius_m = radius_km * 1000
@@ -125,7 +124,7 @@ def get_nearby_places(lat, lon, radius_km=10, types=["school", "hospital"], max_
         else:
             continue
 
-        distance = np.sqrt((lat - elat)*2 + (lon - elon)*2) * 111
+        distance = np.sqrt((lat - elat)**2 + (lon - elon)**2) * 111
         places_by_type[place_type].append({
             "name": name,
             "type": place_type,
@@ -134,14 +133,12 @@ def get_nearby_places(lat, lon, radius_km=10, types=["school", "hospital"], max_
             "distance_km": round(distance, 2)
         })
 
-    # Limit to top N results per type
     results = []
     for t in types:
         sorted_places = sorted(places_by_type[t], key=lambda x: x["distance_km"])
         results.extend(sorted_places[:max_results_per_type])
 
     return results
-
 
 def generate_disaster_map(lat, lon, fire_points, nearby_places=[]):
     m = folium.Map(location=[lat, lon], zoom_start=8)
@@ -257,6 +254,21 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         } for i in range(limit)]
 
     nearby_places = get_nearby_places(data.lat, data.lon)
+
+    # ✅ Grouped by type for UI
+    grouped_places = {}
+    for place in nearby_places:
+        info = {
+            "name": place["name"],
+            "lat": place["lat"],
+            "lon": place["lon"],
+            "distance_km": place["distance_km"]
+        }
+        grouped_places.setdefault(place["type"], []).append(info)
+
+    for t in grouped_places:
+        grouped_places[t] = sorted(grouped_places[t], key=lambda x: x["distance_km"])
+
     map_path = generate_disaster_map(data.lat, data.lon, fire_points, nearby_places)
 
     return {
@@ -275,5 +287,5 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
         "forecast": forecast,
         "disaster_risks": disaster_risks,
         "map_url": map_path,
-        "affected_nearby_places": nearby_places
+        "affected_nearby_places": grouped_places
     }
