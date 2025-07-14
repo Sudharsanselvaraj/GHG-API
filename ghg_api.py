@@ -84,39 +84,51 @@ def fetch_weather(lat, lon):
 # ✅ NEW Overpass-powered accurate nearby place detection
 def get_nearby_places(lat, lon, radius_km=10, types=["school", "hospital"]):
     overpass_url = "http://overpass-api.de/api/interpreter"
-    results = []
-    for place_type in types:
-        query = f"""
-        [out:json];
-        (
-          node["amenity"="{place_type}"](around:{radius_km * 1000},{lat},{lon});
-          way["amenity"="{place_type}"](around:{radius_km * 1000},{lat},{lon});
-          relation["amenity"="{place_type}"](around:{radius_km * 1000},{lat},{lon});
-        );
-        out center;
-        """
-        try:
-            response = requests.post(overpass_url, data=query.encode("utf-8"), timeout=20)
-            data = response.json()
-            for el in data["elements"]:
-                if "lat" in el and "lon" in el:
-                    el_lat, el_lon = el["lat"], el["lon"]
-                elif "center" in el:
-                    el_lat, el_lon = el["center"]["lat"], el["center"]["lon"]
-                else:
-                    continue
-                distance = np.sqrt((lat - el_lat)**2 + (lon - el_lon)**2) * 111
-                results.append({
-                    "name": el.get("tags", {}).get("name", place_type.title()),
-                    "type": place_type,
-                    "lat": el_lat,
-                    "lon": el_lon,
-                    "distance_km": round(distance, 2)
-                })
-        except Exception as e:
-            print(f"⚠️ Overpass API error for {place_type}:", e)
+    radius_m = radius_km * 1000
+    type_queries = "".join([
+        f"""
+        node(around:{radius_m},{lat},{lon})["amenity"="{t}"];
+        way(around:{radius_m},{lat},{lon})["amenity"="{t}"];
+        relation(around:{radius_m},{lat},{lon})["amenity"="{t}"];
+        """ for t in types
+    ])
+    query = f"""
+    [out:json];
+    (
+        {type_queries}
+    );
+    out center;
+    """
+
+    headers = {"User-Agent": "ghg-alert-system"}
+    try:
+        response = requests.post(overpass_url, data=query, headers=headers, timeout=25)
+        data = response.json()
+    except Exception as e:
+        print("❌ Overpass API error:", e)
+        return []
+
+    places = []
+    for element in data.get("elements", []):
+        name = element.get("tags", {}).get("name", element.get("tags", {}).get("amenity", "Unknown"))
+        place_type = element.get("tags", {}).get("amenity", "unknown")
+        if "lat" in element:
+            elat, elon = element["lat"], element["lon"]
+        elif "center" in element:
+            elat, elon = element["center"]["lat"], element["center"]["lon"]
+        else:
             continue
-    return sorted(results, key=lambda x: x["distance_km"])
+        distance = np.sqrt((lat - elat)**2 + (lon - elon)**2) * 111
+        places.append({
+            "name": name,
+            "type": place_type,
+            "lat": elat,
+            "lon": elon,
+            "distance_km": round(distance, 2)
+        })
+
+    return sorted(places, key=lambda x: x["distance_km"])
+
 
 def generate_disaster_map(lat, lon, fire_points, nearby_places=[]):
     m = folium.Map(location=[lat, lon], zoom_start=8)
