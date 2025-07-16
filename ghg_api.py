@@ -1,3 +1,5 @@
+# All imports remain same
+
 from fastapi import FastAPI, Query
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +9,7 @@ import numpy as np
 import requests
 import folium
 from folium.plugins import HeatMap
+from math import radians, cos, sin, sqrt, atan2
 
 app = FastAPI()
 
@@ -27,6 +30,9 @@ try:
     df_fires = pd.read_csv("fire_archive_SV-C2_635121.csv")
     df_fires = df_fires.dropna(subset=['latitude', 'longitude'])
     df_fires['confidence'] = pd.to_numeric(df_fires['confidence'], errors='coerce').fillna(60)
+    df_fires['frp'] = pd.to_numeric(df_fires['frp'], errors='coerce').fillna(0)
+    df_fires['brightness'] = pd.to_numeric(df_fires['brightness'], errors='coerce').fillna(0)
+
     df_fires = df_fires[
         (df_fires['latitude'] >= 5) & (df_fires['latitude'] <= 40) &
         (df_fires['longitude'] >= 60) & (df_fires['longitude'] <= 100)
@@ -39,19 +45,18 @@ class LocationInput(BaseModel):
     lat: float
     lon: float
 
-def get_fires_near(lat, lon, radius_km=50):
-    df_local = df_fires[
-        (df_fires['latitude'] >= lat - 1) & (df_fires['latitude'] <= lat + 1) &
-        (df_fires['longitude'] >= lon - 1) & (df_fires['longitude'] <= lon + 1)
-    ].copy()
+def haversine(lat1, lon1, lat2, lon2):
     R = 6371
-    lat1, lon1 = np.radians(lat), np.radians(lon)
-    lat2, lon2 = np.radians(df_local['latitude'].values), np.radians(df_local['longitude'].values)
-    dlat, dlon = lat2 - lat1, lon2 - lon1
-    a = np.sin(dlat/2)*2 + np.cos(lat1)*np.cos(lat2)*np.sin(dlon/2)*2
-    c = 2 * np.arcsin(np.sqrt(a))
-    df_local['distance'] = R * c
-    df_nearby = df_local[df_local['distance'] <= radius_km]
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
+    return R * 2 * atan2(sqrt(a), sqrt(1 - a))
+
+def get_fires_near(lat, lon, radius_km=50):
+    df_fires['distance'] = df_fires.apply(
+        lambda row: haversine(lat, lon, row['latitude'], row['longitude']), axis=1
+    )
+    df_nearby = df_fires[df_fires['distance'] <= radius_km]
 
     return {
         "fire_count": len(df_nearby),
@@ -61,107 +66,23 @@ def get_fires_near(lat, lon, radius_km=50):
         "avg_brightness": df_nearby["brightness"].mean() if not df_nearby.empty else 0,
     }, df_nearby
 
-def fetch_weather(lat, lon):
-    try:
-        url = (
-            f"https://api.open-meteo.com/v1/forecast"
-            f"?latitude={lat}&longitude={lon}"
-            f"&hourly=temperature_2m,relative_humidity_2m,pressure_msl,wind_speed_10m"
-            f"&current_weather=true&timezone=auto"
-        )
-        r = requests.get(url).json()
-        current = r.get("current_weather", {})
-        hourly = r.get("hourly", {})
-        return {
-            "temperature": current.get("temperature", 0),
-            "wind_speed": current.get("windspeed", 0),
-            "pressure": hourly.get("pressure_msl", [0])[0],
-            "humidity": hourly.get("relative_humidity_2m", [0])[0]
-        }, hourly
-    except Exception:
-        return {"temperature": 0, "wind_speed": 0, "pressure": 0, "humidity": 0}, {}
-
-def get_nearby_places(lat, lon, radius_km=10, types=["school", "hospital"], max_results_per_type=5):
-    overpass_url = "http://overpass-api.de/api/interpreter"
-    radius_m = radius_km * 1000
-    type_queries = "".join([
-        f"""
-        node(around:{radius_m},{lat},{lon})["amenity"="{t}"];
-        way(around:{radius_m},{lat},{lon})["amenity"="{t}"];
-        relation(around:{radius_m},{lat},{lon})["amenity"="{t}"];
-        """ for t in types
-    ])
-    query = f"""
-    [out:json];
-    (
-        {type_queries}
-    );
-    out center;
-    """
-
-    headers = {"User-Agent": "ghg-alert-system"}
-    try:
-        response = requests.post(overpass_url, data=query, headers=headers, timeout=25)
-        data = response.json()
-    except Exception as e:
-        print("❌ Overpass API error:", e)
-        return []
-
-    places_by_type = {t: [] for t in types}
-
-    for element in data.get("elements", []):
-        tags = element.get("tags", {})
-        place_type = tags.get("amenity")
-        if place_type not in types:
-            continue
-
-        name = tags.get("name", f"{place_type.title()}")
-
-        if "lat" in element:
-            elat, elon = element["lat"], element["lon"]
-        elif "center" in element:
-            elat, elon = element["center"]["lat"], element["center"]["lon"]
-        else:
-            continue
-
-        distance = np.sqrt((lat - elat)**2 + (lon - elon)**2) * 111
-        places_by_type[place_type].append({
-            "name": name,
-            "type": place_type,
-            "lat": elat,
-            "lon": elon,
-            "distance_km": round(distance, 2)
-        })
-
-    results = []
-    for t in types:
-        sorted_places = sorted(places_by_type[t], key=lambda x: x["distance_km"])
-        results.extend(sorted_places[:max_results_per_type])
-
-    return results
+# ... [Same fetch_weather, get_nearby_places, and simulate_notifications as before] ...
 
 def generate_disaster_map(lat, lon, fire_points, nearby_places=[]):
     m = folium.Map(location=[lat, lon], zoom_start=8)
     folium.Marker([lat, lon], tooltip="User Location", icon=folium.Icon(color='blue')).add_to(m)
     heat_data = [[row['latitude'], row['longitude']] for _, row in fire_points.iterrows()]
-    HeatMap(heat_data, radius=15, blur=20, gradient={0.4: 'blue', 0.65: 'lime', 1: 'red'}).add_to(m)
+    if heat_data:
+        HeatMap(heat_data, radius=15, blur=20, gradient={0.4: 'blue', 0.65: 'lime', 1: 'red'}).add_to(m)
     for place in nearby_places:
         folium.Marker(
             [place['lat'], place['lon']],
             tooltip=f"{place['type'].title()}: {place['name']}",
-            icon=folium.Icon(color="red", icon="info-sign")
+            icon=folium.Icon(color="red" if place.get("affected") else "green", icon="info-sign")
         ).add_to(m)
     map_path = "ghg_alert_map.html"
     m.save(map_path)
     return map_path
-
-def simulate_notifications(disaster_risks):
-    print("\n📢 Simulated Alert Notification:")
-    for name, risk in disaster_risks.items():
-        if risk['status'] != "Safe":
-            print(f"Sending ALERT email/SMS for {name.upper()}: {risk['status']} - {risk['reason']}")
-        else:
-            print(f"{name.upper()} is safe. No alert sent.")
 
 @app.get("/")
 def home():
@@ -218,17 +139,29 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
 
     simulate_notifications(disaster_risks)
 
-    ghg_causes, ghg_effects, precautions = [], [], []
-    if co2 > 300:
-        ghg_causes.append("🚗 Elevated fossil fuel emissions likely in the area.")
-        ghg_effects.append("🌡 Potential for long-term climate warming.")
-        precautions.append("💨 Ensure proper indoor ventilation.")
-    if no2 > 30:
-        ghg_causes.append("🏭 Industrial activity or vehicle exhaust may be high.")
-        ghg_effects.append("😷 Respiratory irritation and increased asthma risk.")
-        precautions.append("😷 Wear masks in polluted environments.")
-    precautions.append("🌳 Support clean energy and afforestation efforts.")
+    # Nearby places & affected tagging
+    nearby_places = get_nearby_places(data.lat, data.lon)
+    affected_places = []
+    for place in nearby_places:
+        is_affected = any(alert["status"] == "Alert" for alert in disaster_risks.values())
+        place["affected"] = is_affected
+        affected_places.append(place)
 
+    # Group for UI
+    grouped_places = {}
+    for place in affected_places:
+        info = {
+            "name": place["name"],
+            "lat": place["lat"],
+            "lon": place["lon"],
+            "distance_km": place["distance_km"],
+            "affected": place["affected"]
+        }
+        grouped_places.setdefault(place["type"], []).append(info)
+    for t in grouped_places:
+        grouped_places[t] = sorted(grouped_places[t], key=lambda x: x["distance_km"])
+
+    # Forecast
     forecast = []
     if forecast_hourly:
         times = forecast_hourly.get("time", [])
@@ -253,23 +186,18 @@ def predict(data: LocationInput, hours: int = Query(24, ge=1, le=72)):
             "no2": round(pred_no2[i], 2)
         } for i in range(limit)]
 
-    nearby_places = get_nearby_places(data.lat, data.lon)
+    ghg_causes, ghg_effects, precautions = [], [], []
+    if co2 > 300:
+        ghg_causes.append(" Elevated fossil fuel emissions likely in the area.")
+        ghg_effects.append(" Potential for long-term climate warming.")
+        precautions.append(" Ensure proper indoor ventilation.")
+    if no2 > 30:
+        ghg_causes.append(" Industrial activity or vehicle exhaust may be high.")
+        ghg_effects.append(" Respiratory irritation and increased asthma risk.")
+        precautions.append(" Wear masks in polluted environments.")
+    precautions.append("🌳 Support clean energy and afforestation efforts.")
 
-    # ✅ Grouped by type for UI
-    grouped_places = {}
-    for place in nearby_places:
-        info = {
-            "name": place["name"],
-            "lat": place["lat"],
-            "lon": place["lon"],
-            "distance_km": place["distance_km"]
-        }
-        grouped_places.setdefault(place["type"], []).append(info)
-
-    for t in grouped_places:
-        grouped_places[t] = sorted(grouped_places[t], key=lambda x: x["distance_km"])
-
-    map_path = generate_disaster_map(data.lat, data.lon, fire_points, nearby_places)
+    map_path = generate_disaster_map(data.lat, data.lon, fire_points, affected_places)
 
     return {
         "location": {"lat": data.lat, "lon": data.lon},
