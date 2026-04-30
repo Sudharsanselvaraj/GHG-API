@@ -10,6 +10,9 @@ from folium.plugins import HeatMap
 
 app = FastAPI()
 
+
+#fast api config
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
